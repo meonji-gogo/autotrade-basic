@@ -1,6 +1,11 @@
 # 한국투자증권 API 인증을 담당하는 파일
 import requests
+import time
 from config import KIS_APP_KEY, KIS_APP_SECRET, KIS_DOMAIN
+
+# 발급받은 토큰을 캐시하는 전역 변수
+# 프로그램 실행 중 한 번 발급한 토큰을 재사용하여 불필요한 API 호출을 줄입니다
+_cached_token = None
 
 
 def get_access_token():
@@ -10,6 +15,14 @@ def get_access_token():
     이 함수는 한국투자증권의 OAuth2 Client Credentials 절차를 따릅니다.
     - token은 발급 후 24시간 동안 유효합니다
     - 6시간 이내에 재발급 요청하면 이전 token을 반환합니다
+    
+    토큰 캐싱:
+    - 한 번 발급받은 토큰은 전역 변수(_cached_token)에 저장되어 재사용됩니다
+    - 프로그램 실행 중 동일한 토큰을 반복 호출하면 API 요청 없이 캐시된 토큰을 반환합니다
+    
+    자동 재시도:
+    - EGW00133 오류(1분당 1회 제한) 발생 시 1분 대기 후 자동으로 재시도합니다
+    - 최대 3회까지 자동 재시도하며, 프로그램은 중단되지 않습니다
     
     Returns:
         dict: access token과 관련 정보를 포함한 딕셔너리
@@ -23,6 +36,13 @@ def get_access_token():
     Raises:
         Exception: API 호출 실패 또는 필수 환경변수 미설정 시 예외 발생
     """
+    
+    global _cached_token
+    
+    # 캐시된 토큰이 있으면 즉시 반환합니다
+    # 이렇게 하면 같은 토큰을 여러 번 요청할 때 API 호출을 하지 않아 효율적입니다
+    if _cached_token is not None:
+        return _cached_token
     
     # 환경변수가 설정되어 있는지 확인
     if not KIS_APP_KEY or not KIS_APP_SECRET:
@@ -47,15 +67,55 @@ def get_access_token():
         "appsecret": KIS_APP_SECRET
     }
     
-    # API 호출
-    try:
-        response = requests.post(url, json=body, headers=headers, verify=False)
-        response.raise_for_status()  # HTTP 에러 발생 시 예외 던지기
-        
-        # 응답 데이터 추출
-        token_data = response.json()
-        
-        return token_data
+    # 자동 재시도 로직
+    # EGW00133 오류(1분당 1회 제한)가 발생하면 대기 후 재시도합니다
+    max_retries = 3  # 최대 3회까지 재시도
+    retry_count = 0
     
-    except requests.exceptions.RequestException as e:
-        raise Exception(f"토큰 발급 실패: {str(e)}")
+    while retry_count < max_retries:
+        try:
+            response = requests.post(url, json=body, headers=headers, verify=False)
+            
+            # 응답 데이터 추출
+            response_data = response.json()
+            
+            # API 응답에 error_code가 있는지 확인합니다
+            # 성공하면 access_token이 포함되어 있습니다
+            if "error_code" in response_data:
+                # API에서 오류를 반환한 경우
+                error_code = response_data.get("error_code")
+                error_description = response_data.get("error_description", "알 수 없는 오류")
+                
+                # EGW00133 오류인지 확인합니다
+                # 이 오류는 1분당 1회 토큰 발급 제한으로 인한 오류입니다
+                if error_code == "EGW00133":
+                    retry_count += 1
+                    
+                    if retry_count < max_retries:
+                        # 1분 대기 후 재시도합니다
+                        print(f"⏳ 토큰 발급 제한 감지 (EGW00133)")
+                        print(f"   사유: {error_description}")
+                        print(f"   1분 대기 후 재시도합니다... ({retry_count}/{max_retries})")
+                        time.sleep(60)  # 60초 대기
+                        continue
+                    else:
+                        # 최대 재시도 횟수를 초과했습니다
+                        raise Exception(
+                            f"토큰 발급 실패: 최대 재시도 횟수({max_retries}회) 초과. "
+                            f"1분 후 다시 시도해주세요."
+                        )
+                else:
+                    # 다른 API 오류입니다
+                    raise Exception(f"토큰 발급 실패: [{error_code}] {error_description}")
+            else:
+                # 정상 응답 - access_token 포함
+                # 토큰을 캐시에 저장합니다
+                # 이후 get_access_token() 호출 시 캐시된 토큰을 반환합니다
+                _cached_token = response_data
+                
+                return response_data
+        
+        except requests.exceptions.RequestException as e:
+            # HTTP 통신 오류입니다
+            error_msg = str(e)
+            raise Exception(f"토큰 발급 실패: {error_msg}")
