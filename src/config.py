@@ -13,3 +13,10 @@ KIS_ACCOUNT_NO = os.getenv("KIS_ACCOUNT_NO", "")
 # 한국투자증권 API 엔드포인트
 KIS_DOMAIN = "https://openapi.koreainvestment.com:9443"  # 실전 환경
 # KIS_DOMAIN = "https://openapivts.koreainvestment.com:29443"  # 모의 환경
+
+# 종목 정보
+SYMBOL = os.getenv("SYMBOL", "TQQQ")  # 종목 코드 (예: TQQQ, AAPL, TSLA)
+EXCHANGE = os.getenv("EXCHANGE", "NAS")  # 거래소 코드 (NAS: 나스닥, NYS: 뉴욕 등)
+
+# 계좌 정보
+ACNT_PRDT_CD = "01"  # 계좌상품코드 (상품코드)
