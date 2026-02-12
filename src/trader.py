@@ -598,3 +598,146 @@ def get_overseas_order_history(symbol, exchange_code="NAS", days=30):
     
     except requests.exceptions.RequestException as e:
         raise Exception(f"주문체결내역 조회 실패: {str(e)}")
+
+
+def place_overseas_order(symbol, exchange_code, order_type, quantity, price, trade_mode="DRY"):
+    """
+    해외주식 주문을 실행합니다.
+    
+    이 함수는 한국투자증권 API를 통해 해외주식 매수 주문을 합니다.
+    - DRY 모드: 주문 정보만 출력하고 실제로는 주문하지 않습니다
+    - LIVE 모드: 실제로 주문을 실행하고 주문번호를 반환합니다
+    
+    Parameters:
+        symbol (str): 종목 코드 (예: "TQQQ", "AAPL", "TSLA")
+        exchange_code (str): 거래소 코드
+            - NASD: 나스닥
+            - NYSE: 뉴욕
+            - AMEX: 아멕스
+            - SEHK: 홍콩
+            - 기타 거래소는 공식 문서 참고
+        order_type (str): 주문 구분
+            - LIMIT: 지정가 (00)
+            - LOC: 장마감지정가 (34)
+            - LOO: 장개시지정가 (32)
+            - MOO: 장개시시장가 (31)
+            - MOC: 장마감시장가 (33)
+        quantity (int): 주문 수량
+        price (float): 주문 가격 (1주당 가격)
+        trade_mode (str): 거래 모드 ("DRY" 또는 "LIVE")
+    
+    Returns:
+        dict: LIVE 모드일 때 주문번호(odno)를 포함한 딕셔너리
+              {
+                  "odno": "주문번호",
+                  "org_no": "한국거래소전송주문조직번호",
+                  "ord_tmd": "주문시각"
+              }
+              DRY 모드일 때는 None
+    
+    Raises:
+        Exception: API 호출 실패 또는 필수 정보 미설정 시 예외 발생
+                   실패 시 응답코드(msg_cd)와 응답메시지(msg1)를 포함하여 에러 발생
+    """
+    from config import KIS_ACCOUNT_NO, ACNT_PRDT_CD
+    
+    # 주문 구분 코드 매핑
+    order_type_map = {
+        "LIMIT": "00",  # 지정가
+        "LOC": "34",    # 장마감지정가
+        "LOO": "32",    # 장개시지정가
+        "MOO": "31",    # 장개시시장가
+        "MOC": "33"     # 장마감시장가
+    }
+    
+    if order_type not in order_type_map:
+        raise Exception(f"지원하지 않는 주문 유형입니다: {order_type}")
+    
+    ord_dvsn = order_type_map[order_type]
+    
+    # DRY 모드일 때는 주문 정보만 출력
+    if trade_mode == "DRY":
+        print("\n========== [DRY 모드] 주문 정보 ==========")
+        print(f"종목 코드: {symbol}")
+        print(f"거래소: {exchange_code}")
+        print(f"주문 유형: {order_type} ({ord_dvsn})")
+        print(f"주문 수량: {quantity}주")
+        print(f"주문 가격: ${price}")
+        print(f"계좌 번호: {KIS_ACCOUNT_NO}")
+        print("실제 주문은 실행되지 않았습니다.")
+        print("=========================================\n")
+        return None
+    
+    # LIVE 모드일 때만 실제 주문 실행
+    # Step 1: 접근 토큰 획득
+    try:
+        token_data = get_access_token()
+        access_token = token_data["access_token"]
+    except Exception as e:
+        raise Exception(f"토큰 획득 실패: {str(e)}")
+    
+    # Step 2: API 호출 URL 구성
+    url = f"{KIS_DOMAIN}/uapi/overseas-stock/v1/trading/order"
+    
+    # Step 3: TR_ID 결정 (실전투자 미국 매수)
+    tr_id = "TTTT1002U"
+    
+    # Step 4: 요청 헤더 설정
+    headers = {
+        "content-type": "application/json; charset=utf-8",
+        "authorization": f"Bearer {access_token}",
+        "appkey": KIS_APP_KEY,
+        "appsecret": KIS_APP_SECRET,
+        "tr_id": tr_id
+    }
+    
+    # Step 5: 요청 바디 설정
+    body = {
+        "CANO": KIS_ACCOUNT_NO,           # 종합계좌번호 (8자리)
+        "ACNT_PRDT_CD": ACNT_PRDT_CD,     # 계좌상품코드 (01)
+        "OVRS_EXCG_CD": exchange_code,    # 해외거래소코드
+        "PDNO": symbol,                   # 상품번호 (종목코드)
+        "ORD_QTY": str(quantity),         # 주문수량
+        "OVRS_ORD_UNPR": str(price),      # 해외주문단가 (1주당 가격)
+        "ORD_SVR_DVSN_CD": "0",           # 주문서버구분코드 (기본값 "0")
+        "ORD_DVSN": ord_dvsn              # 주문구분
+    }
+    
+    # Step 6: API 호출
+    try:
+        response = requests.post(
+            url,
+            headers=headers,
+            json=body,
+            verify=False
+        )
+        response.raise_for_status()
+        
+        # Step 7: 응답 데이터 추출
+        response_data = response.json()
+        
+        # API 응답이 정상인지 확인
+        if response_data.get("rt_cd") != "0":
+            msg_cd = response_data.get("msg_cd", "")
+            msg1 = response_data.get("msg1", "알 수 없는 에러")
+            raise Exception(f"주문 실패 (응답코드: {msg_cd}): {msg1}")
+        
+        # 주문 성공 정보 반환
+        output = response_data.get("output", {})
+        
+        print("\n========== [LIVE 모드] 주문 성공 ==========")
+        print(f"종목 코드: {symbol}")
+        print(f"주문번호: {output.get('ODNO', '')}")
+        print(f"주문시각: {output.get('ORD_TMD', '')}")
+        print(f"주문수량: {quantity}주")
+        print(f"주문가격: ${price}")
+        print("==========================================\n")
+        
+        return {
+            "odno": output.get("ODNO", ""),                       # 주문번호
+            "org_no": output.get("KRX_FWDG_ORD_ORGNO", ""),      # 한국거래소전송주문조직번호
+            "ord_tmd": output.get("ORD_TMD", "")                 # 주문시각
+        }
+    
+    except requests.exceptions.RequestException as e:
+        raise Exception(f"주문 실행 실패: {str(e)}")

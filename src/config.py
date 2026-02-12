@@ -20,3 +20,6 @@ EXCHANGE = os.getenv("EXCHANGE", "NAS")  # 거래소 코드 (NAS: 나스닥, NYS
 
 # 계좌 정보
 ACNT_PRDT_CD = "01"  # 계좌상품코드 (상품코드)
+
+# 거래 모드
+TRADE_MODE = os.getenv("TRADE_MODE", "DRY")  # 거래 모드 (DRY: 주문 정보만 출력, LIVE: 실제 주문)
