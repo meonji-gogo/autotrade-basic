@@ -186,15 +186,15 @@ def 무상태_무한매수법(symbol, exchange_code, splits, take_profit_rate, b
     orders = []
     
     if position_qty == 0:
-        # 포지션 없음: 초기 진입
+        # 포지션 없음: 초기 진입 (현재가 LIMIT 주문)
         initial_qty = 2 * unit_qty
         initial_price = adjust_price_to_tick(last_price)
         
         orders.append({
             "side": "BUY",
             "quantity": initial_qty,
-            "price": None,  # MOC는 가격 지정 없음
-            "order_type": "MOC",
+            "price": initial_price,  # 현재가로 LIMIT 주문
+            "order_type": "LIMIT",
             "comment": "초기 진입"
         })
     else:
