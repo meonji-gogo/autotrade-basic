@@ -16,6 +16,7 @@ sys.path.append("src")
 from config import SYMBOL, EXCHANGE, TRADE_MODE, SPLITS, TAKE_PROFIT, BIG_BUY_RANGE
 from strategy import 무상태_무한매수법
 from trader import place_overseas_order
+from telegram import send_telegram
 
 
 def convert_exchange_code(exchange_code):
@@ -59,6 +60,9 @@ def main():
         print("\n" + "="*60)
         print("자동매매 봇 시작")
         print("="*60)
+        
+        # 텔레그램으로 시작 알림 전송
+        send_telegram("🚀 자동매매 시작")
         
         # ========================================
         # Step 1: 환경변수 확인
@@ -165,6 +169,15 @@ def main():
                         "ord_tmd": result['ord_tmd']
                     })
                     print(f"✓ 주문 성공")
+                    
+                    # 텔레그램으로 주문 성공 알림 전송
+                    message = f"""✅ 주문 성공
+
+{order['comment']}
+수량: {order['quantity']}주
+주문번호: {result['odno']}
+시각: {result['ord_tmd']}"""
+                    send_telegram(message)
                 else:
                     # DRY 모드일 때
                     print(f"✓ 주문 정보 출력 완료")
@@ -178,8 +191,12 @@ def main():
                     "error": str(e)
                 })
                 
-                # TODO: 텔레그램으로 주문 실패 알림 전송
-                # send_telegram_message(f"⚠️ 주문 실패\n{order['comment']}\n에러: {str(e)}")
+                # 텔레그램으로 주문 실패 알림 전송
+                message = f"""⚠️ 주문 실패
+
+{order['comment']}
+에러: {str(e)}"""
+                send_telegram(message)
                 
                 # 주문 실패 시에도 다음 주문을 계속 진행
                 continue
@@ -234,8 +251,11 @@ def main():
         print("="*60)
         print(f"에러: {str(e)}")
         
-        # TODO: 텔레그램으로 치명적 에러 알림 전송
-        # send_telegram_message(f"🚨 치명적 에러 발생\n{str(e)}")
+        # 텔레그램으로 치명적 에러 알림 전송
+        message = f"""🚨 치명적 에러 발생
+
+{str(e)}"""
+        send_telegram(message)
         
         # 상세 에러 정보 출력
         import traceback
